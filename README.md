@@ -1,6 +1,19 @@
 # AlithesOracle
 
-News-verified event oracle built on **Spring Boot 3.5 / Java 21**, **PostgreSQL 16 + Flyway**, and **TypeSafe AI Jev** (`jev-1.14.0`). Given a discrete factual event question, AlithesOracle admits well-scoped questions, compiles sanitized search queries, discovers articles across GDELT, Bing/Google News RSS fallbacks, and targeted Wikipedia footnotes, evaluates full article text against prompt injection and stance instability, and settles questions deterministically with optional consensus synthesis and HMAC-SHA256 webhooks.
+**Automated, auditable real-world event verification powered by independent news coverage.**
+
+AlithesOracle answers discrete yes/no questions about public real-world events—such as elections, regulatory rulings, executive appointments, corporate deals, or policy announcements—and settles them automatically with transparent confidence scores and a full evidence trail.
+
+### Why AlithesOracle?
+
+Organizations that rely on timely, objective real-world outcomes—including **prediction markets, automated compliance and risk teams, parametric triggers, and operational monitoring systems**—often face a painful trade-off between slow manual verification and brittle, single-source automation.
+
+AlithesOracle solves this by combining multi-source news discovery, calibrated AI stance assessment (**TypeSafe AI Jev**), and deterministic consensus rules:
+
+- **Independent Multi-Source Verification:** Aggregates reporting across GDELT, Bing/Google News RSS fallbacks, and targeted Wikipedia citations, then clusters syndicated wire copies so one press release cannot masquerade as multiple independent sources.
+- **Transparent Audit Trail:** Every decision is backed by persisted source URLs, excerpts, credibility tiers, per-article assessments, scan logs, and a reproducible confidence score.
+- **Manipulation & Noise Resistance:** Screens out ambiguous or non-newsworthy questions up front, downweights rumors and opinion pieces, flags prompt-injection attempts, and routes genuine contradictions to an explicit `DISPUTED` state for review.
+- **Ready for Automated Settlement:** Query outcomes on demand via REST, track ongoing events on a schedule, inspect everything in the built-in web console, and receive HMAC-SHA256 signed webhook notifications the moment an event resolves.
 
 ---
 
@@ -26,34 +39,6 @@ flowchart LR
     SCAN --> SYN["ConsensusAdjudicator + ConsensusSynthesizer"]
     SCAN --> WH["WebhookNotifier (HMAC-SHA256)"]
 ```
-
----
-
-## Package & Module Structure
-
-- `io.alithes.oracle.config`: Strongly typed, validated `@ConfigurationProperties` records (`OracleProperties`, `HttpClientProperties`, `JevProperties`, `GdeltProperties`, `FetcherProperties`, `ScannerProperties`, `NewsProperties`, `WebhookProperties`, `PolicyProperties`, `SecurityProperties`, `AdmissionProperties`, `QueryProperties`, `AssessorProperties`, `SynthesisProperties`, `ScoringProperties`).
-- `io.alithes.oracle.client` & `.client.jev`:
-  - `DecisionEngine` / `JevClient` and immutable request/response types (`QuestionSpec`, `NoulQuestion`, `ChoiceQuestion`, `Answer`, `NoulAnswer`, `ChoiceAnswer`, `SystemOneRequest`, `SystemOneResponse`, `JevResponse`).
-  - `NewsSource` implementations (`GdeltClient`, `AbstractRssNewsClient` template method with `BingNewsRssClient` and `GoogleNewsRssClient`), `FallbackNewsSource` with `CooldownGuard`, `ArticleFetcher` + `ArticleHtmlParser`, and `SupplementalEvidenceSource` (`WikipediaClient` + `WikipediaCitationHarvester`).
-- `io.alithes.oracle.service`, `.service.assessment`, `.service.resolution`:
-  - `AdmissionService`, `QueryCompiler`, `QuestionService`, `SourceTierRegistry`, `ScanScheduler`, `WebhookNotifier`.
-  - `ArticleDiscoveryService`, `EvidenceProcessingPipeline`, `ScanService`.
-  - `HeadlinePrefilter`, `ParagraphScreener`, `AssessmentPromptFactory`, `EvidenceAssessor`, `ConsensusSynthesizer`, `ConsensusAdjudicator`.
-  - `AttributionTier`, `EvidenceScorer`, `EvidenceCluster`, `EvidenceClusterer`, `ResolutionRule` chain (`ContradictionDisputeRule`, `ConfirmingQuorumRule`, `ActiveBeforeDeadlineRule`, `CoverageGapUnresolvableRule`, `PostDeadlinePartialDisputeRule`, `PostDeadlineNoResolutionRule`), and `ResolutionEngine`.
-- `io.alithes.oracle.web`, `.web.dto`, `.web.filter`, `.health`:
-  - `QueryController`, `QuestionController`, `SystemController`, `ProblemDetailsFactory`, `GlobalExceptionHandler`, `RequestCorrelationFilter` (`X-Request-Id` / SLF4J MDC), and `OracleHealthIndicator` (`/actuator/health`).
-- `src/main/resources/static/`: Bundled zero-build management console using native ES modules (`app.js`, `js/api.js`, `js/state.js`, `js/formatters.js`, `js/evidenceView.js`, `js/systemTab.js`, `js/askTab.js`, `js/questionsTab.js`).
-
----
-
-## Design Patterns Applied
-
-- **Template Method (`AbstractRssNewsClient`)**: Centralizes RSS HTTP execution, Jsoup XML parsing, date-window filtering, and error translation across RSS providers.
-- **Chain of Responsibility (`ResolutionRule`, `FallbackNewsSource`)**:
-  - Ordered Spring `@Order` policy rules (`ContradictionDisputeRule` → `ConfirmingQuorumRule` → `ActiveBeforeDeadlineRule` → `CoverageGapUnresolvableRule` → `PostDeadlinePartialDisputeRule` → `PostDeadlineNoResolutionRule`) decide resolution cleanly without monolithic conditionals.
-  - News search fails over from primary GDELT through `FallbackProvider` entries (`BingNewsRssClient` → `GoogleNewsRssClient`) guarded by `CooldownGuard`.
-- **Strategy (`DecisionEngine`, `NewsSource`, `ContentFetcher`, `SupplementalEvidenceSource`, `ResolutionNotifier`)**: Keeps external APIs, article scrapers, and supplemental citation harvesters swappable and offline-testable.
-- **Factory (`ProblemDetailsFactory`, `AssessmentPromptFactory`, `ResolutionRules`)**: Eliminates duplicated RFC 7807 response assembly and Jev prompt schemas.
 
 ---
 
@@ -103,7 +88,7 @@ Every HTTP response includes an `X-Request-Id` header correlated into applicatio
 
 ## Configuration Reference (`oracle.*`)
 
-All policy thresholds, HTTP timeouts, concurrency limits, query compilation bounds, HTML extraction heuristics, and Jev synthesis gates are configured in [application.yml](src/main/resources/application.yml) and validated at startup by `*Properties` records:
+All policy thresholds, HTTP timeouts, concurrency limits, query compilation bounds, HTML extraction heuristics, and Jev synthesis gates are configured in [application.yml](src/main/resources/application.yml) and validated at startup:
 
 - `oracle.http.*`: Shared HTTP client connect timeout.
 - `oracle.jev.*`: API endpoint, key, pinned model enforcement (`reject-alias`, `forbidden-aliases`), retry/backoff bounds.
