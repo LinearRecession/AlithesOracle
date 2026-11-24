@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlithesOracle Console</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand">
+                <div class="brand-mark" aria-hidden="true">A</div>
+                <div>
+                    <h1 class="brand-title">AlithesOracle</h1>
+                    <p class="brand-subtitle">News-Verified Event Oracle Console</p>
+                </div>
+            </div>
+
+            <div class="status-pills">
+                <span id="health-pill" class="pill pill-muted" title="Spring Boot Actuator Health">Health: checking...</span>
+                <span id="model-pill" class="pill pill-muted" title="Pinned Jev Model">Model: --</span>
+                <span id="scheduler-pill" class="pill pill-muted" title="Background Scan Scheduler">Scheduler: --</span>
+                <button id="refresh-system-btn" type="button" class="btn btn-secondary btn-sm">Refresh</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div id="api-key-banner" class="alert alert-warning hidden" role="status">
+            <strong>TYPESAFE_API_KEY is not configured.</strong>
+            Set <code>TYPESAFE_API_KEY</code> in your environment or <code>.env</code> file before submitting live questions or queries.
+        </div>
+
+        <nav class="tabs" aria-label="Console Sections">
+            <button type="button" class="tab-btn active" data-tab="ask">Ask Oracle</button>
+            <button type="button" class="tab-btn" data-tab="questions">Questions <span id="tab-questions-count" class="tab-count">0</span></button>
+            <button type="button" class="tab-btn" data-tab="system">System &amp; Policy</button>
+        </nav>
+
+        <!-- TAB 1: ASK ORACLE (/v1/query) -->
+        <section id="tab-ask" class="tab-panel active">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2>Run Synchronous Query</h2>
+                        <p class="muted">Admits the question, compiles GDELT queries, fetches articles, runs Jev assessments, and returns a deterministic resolution in one call.</p>
+                    </div>
+                </div>
+
+                <form id="query-form" class="form-stack">
+                    <div class="form-group">
+                        <label for="q-query">Question (Natural Language) <span class="req">*</span></label>
+                        <textarea id="q-query" rows="2" required placeholder="e.g., Has Country X officially announced a snap election?"></textarea>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label for="q-criteria">Resolution Criteria (Optional)</label>
+                            <input id="q-criteria" type="text" maxlength="2000" placeholder="e.g., Confirmed by official decree or head of government announcement">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="q-lookback">Lookback Days (1–79)</label>
+                            <input id="q-lookback" type="number" min="1" max="79" value="30">
+                        </div>
+                    </div>
+
+                    <details class="advanced-box">
+                        <summary>Advanced Window &amp; Query Overrides</summary>
+                        <div class="advanced-grid">
+                            <div class="form-group">
+                                <label for="q-window-start">windowStart (UTC)</label>
+                                <input id="q-window-start" type="datetime-local">
+                            </div>
+                            <div class="form-group">
+                                <label for="q-deadline">deadline (UTC)</label>
+                                <input id="q-deadline" type="datetime-local">
+                            </div>
+                            <div class="form-group">
+                                <label for="q-grace">graceHours (0–720)</label>
+                                <input id="q-grace" type="number" min="0" max="720" placeholder="0">
+                            </div>
+                            <div class="form-group full-span">
+                                <label for="q-search-queries">searchQueries Override (one per line or comma-separated, max 10)</label>
+                                <textarea id="q-search-queries" rows="2" placeholder='e.g., "European Central Bank" interest rate'></textarea>
+                            </div>
+                        </div>
+                    </details>
+
+                    <div class="form-actions">
+                        <button id="query-submit-btn" type="submit" class="btn btn-primary">Run Oracle Query</button>
+                        <span id="query-spinner" class="spinner-inline hidden">Scanning GDELT &amp; evaluating with Jev... (this can take 15–60s)</span>
+                    </div>
+                </form>
+
+                <div id="query-error" class="alert alert-danger hidden" role="alert"></div>
+            </div>
+
+            <div id="query-result" class="card hidden"></div>
+        </section>
+
+        <!-- TAB 2: QUESTIONS MANAGER (/v1/questions) -->
+        <section id="tab-questions" class="tab-panel">
+            <div class="card">
+                <div class="card-header row-between">
+                    <div>
+                        <h2>Managed Questions</h2>
+                        <p class="muted">Track active monitors, inspect evidence &amp; scan logs, trigger manual rescans, and settle disputed resolutions.</p>
+                    </div>
+                    <div class="btn-group">
+                        <button id="toggle-create-btn" type="button" class="btn btn-primary">+ New Question</button>
+                        <button id="refresh-questions-btn" type="button" class="btn btn-secondary">Reload</button>
+                    </div>
+                </div>
+
+                <div id="create-question-drawer" class="drawer hidden">
+                    <h3>Create Tracked Question</h3>
+                    <form id="create-question-form" class="form-stack">
+                        <div class="form-group">
+                            <label for="c-text">Question Text <span class="req">*</span></label>
+                            <textarea id="c-text" rows="2" required placeholder="e.g., Has Country X officially ratified the maritime treaty?"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="c-criteria">Resolution Criteria (Optional)</label>
+                            <input id="c-criteria" type="text" maxlength="2000" placeholder="Optional rules clarifying what counts as YES">
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label for="c-window-start">windowStart (UTC) <span class="req">*</span></label>
+                                <input id="c-window-start" type="datetime-local" required>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="c-deadline">deadline (UTC) <span class="req">*</span></label>
+                                <input id="c-deadline" type="datetime-local" required>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="c-grace">graceHours (0–720)</label>
+                                <input id="c-grace" type="number" min="0" max="720" value="48">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label for="c-search-queries">searchQueries Override (Optional)</label>
+                                <input id="c-search-queries" type="text" placeholder="Comma-separated GDELT queries">
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="c-webhook">webhookUrl (Optional)</label>
+                                <input id="c-webhook" type="url" maxlength="2048" placeholder="https://example.com/webhook">
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button id="create-submit-btn" type="submit" class="btn btn-primary">Submit Question</button>
+                            <button id="cancel-create-btn" type="button" class="btn btn-secondary">Cancel</button>
+                        </div>
+                    </form>
+                    <div id="create-error" class="alert alert-danger hidden" role="alert"></div>
+                </div>
+
+                <div id="status-filter-bar" class="filter-bar"></div>
+                <div id="questions-error" class="alert alert-danger hidden" role="alert"></div>
+
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Question</th>
+                                <th>Window (UTC)</th>
+                                <th>Last Scan</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody id="questions-tbody">
+                            <tr><td colspan="5" class="empty-cell">Loading questions...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="question-detail-card" class="card hidden"></div>
+        </section>
+
+        <!-- TAB 3: SYSTEM & POLICY (/v1/system) -->
+        <section id="tab-system" class="tab-panel">
+            <div class="grid-2">
+                <div class="card">
+                    <h2>Runtime Configuration</h2>
+                    <div id="system-runtime-info" class="kv-list">
+                        <p class="muted">Loading runtime configuration...</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Question Status Summary</h2>
+                    <div id="system-counts-info" class="counts-grid">
+                        <p class="muted">Loading status counts...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Resolution Policy Thresholds</h2>
+                <div id="system-policy-info" class="table-wrap">
+                    <p class="muted">Loading policy thresholds...</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/app.js"></script>
+</body>
+</html>

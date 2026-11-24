@@ -1,0 +1,31 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:alithes;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  flyway:
+    enabled: true
+
+oracle:
+  jev:
+    api-key: test-key
+    model: jev-1.14.0
+    reject-alias: true
+    retry-base-delay-ms: 10
+  gdelt:
+    min-interval-ms: 0
+    retry-base-delay-ms: 10
+  scanner:
+    enabled: false
+  news:
+    bing-rss-enabled: false
+    google-rss-enabled: false
+    wikipedia-enabled: false
+    wikipedia-max-citations: 0
+  webhook:
+    secret: test-webhook-secret
+  policy:
+    jev-synthesis-enabled: false
+  security:
+    allow-private-network-urls: true

@@ -1,0 +1,78 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: alithes-oracle
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/alithes}
+    username: ${DATABASE_USER:alithes}
+    password: ${DATABASE_PASSWORD:alithes}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+oracle:
+  jev:
+    base-url: ${JEV_BASE_URL:https://api.typesafe.ai}
+    api-key: ${TYPESAFE_API_KEY:}
+    model: ${JEV_MODEL:jev-1.14.0}
+    reject-alias: true
+    timeout-ms: 15000
+    max-retries: 3
+    retry-base-delay-ms: 1000
+  gdelt:
+    base-url: ${GDELT_BASE_URL:https://api.gdeltproject.org}
+    min-interval-ms: 5500
+    timeout-ms: 8000
+    max-retries: 1
+    retry-base-delay-ms: 2000
+    max-window-split-depth: 3
+  fetcher:
+    timeout-ms: 6000
+    max-bytes: 2097152
+    user-agent: "AlithesOracle/1.0 (+https://alithes.io)"
+  scanner:
+    enabled: ${ORACLE_SCHEDULER_ENABLED:false}
+    fixed-delay-ms: 900000
+    overlap-minutes: 30
+    max-articles-per-scan: 30
+    headline-min-score: 0.30
+    max-concurrency: 8
+  news:
+    bing-rss-enabled: ${BING_RSS_FALLBACK_ENABLED:true}
+    bing-rss-base-url: ${BING_RSS_BASE_URL:https://www.bing.com}
+    bing-rss-timeout-ms: 8000
+    bing-rss-max-results: 30
+    google-rss-enabled: ${GOOGLE_RSS_FALLBACK_ENABLED:true}
+    google-rss-base-url: ${GOOGLE_RSS_BASE_URL:https://news.google.com}
+    google-rss-timeout-ms: 8000
+    google-rss-max-results: 30
+    gdelt-cooldown-ms: 60000
+    wikipedia-enabled: ${WIKIPEDIA_SOURCE_ENABLED:true}
+    wikipedia-base-url: ${WIKIPEDIA_BASE_URL:https://en.wikipedia.org}
+    wikipedia-timeout-ms: 6000
+    wikipedia-max-pages: 3
+    wikipedia-max-citations: 5
+  webhook:
+    secret: ${WEBHOOK_SECRET:dev-secret-change-me}
+    timeout-ms: 5000
+    max-retries: 3
+  policy:
+    version: 1
+    min-cluster-confirm-weight: 0.45
+    min-confirm-clusters: 3
+    min-trusted-clusters: 1
+    min-confirm-sum: 1.80
+    max-deny-ratio: 0.50
+    dispute-threshold: 1.50
+    post-deadline-dispute-confirm-sum: 0.80
+    max-failed-scan-ratio: 0.20
+    jev-synthesis-enabled: true
+  security:
+    allow-private-network-urls: false
+  admission:
+    max-ambiguous-score: ${ORACLE_MAX_AMBIGUOUS_SCORE:0.65}
