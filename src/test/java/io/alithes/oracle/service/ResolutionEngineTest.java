@@ -3,7 +3,7 @@ package io.alithes.oracle.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.PolicyProperties;
 import io.alithes.oracle.domain.Assessment;
 import io.alithes.oracle.domain.Evidence;
 import io.alithes.oracle.domain.EvidenceStage;
@@ -51,7 +51,7 @@ class ResolutionEngineTest {
     };
 
     private final SourceTierRegistry registry = new SourceTierRegistry();
-    private final ResolutionEngine engine = new ResolutionEngine(OracleProperties.Policy.defaults(), registry);
+    private final ResolutionEngine engine = new ResolutionEngine(PolicyProperties.defaults(), registry);
 
     @Test
     void sourceTierRegistryLoadsTiersNormalizesHostsAndFallsBackOneSubdomainLabel() {
@@ -196,7 +196,7 @@ class ResolutionEngineTest {
         assertThat(engine.evaluate(q, items, List.of(), NOW)).isEmpty();
 
         // Even with a permissive cluster weight/sum threshold, minTrustedClusters=2 keeps 3 tier-3 sources ACTIVE.
-        OracleProperties.Policy relaxedClusterThreshold = new OracleProperties.Policy(
+        PolicyProperties relaxedClusterThreshold = new PolicyProperties(
                 1, 0.20, 3, 2, 0.60, 0.50, 1.50, 1.00, 0.20, false);
         ResolutionEngine relaxedEngine = new ResolutionEngine(relaxedClusterThreshold, registry);
         assertThat(relaxedEngine.evaluate(q, items, List.of(), NOW)).isEmpty();

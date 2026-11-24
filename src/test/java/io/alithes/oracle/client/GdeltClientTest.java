@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
-import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.GdeltProperties;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.time.Instant;
@@ -49,7 +49,7 @@ class GdeltClientTest {
     }
 
     private GdeltClient createClient(long minIntervalMs, int maxRetries, long baseDelayMs, int maxSplitDepth) {
-        var props = new OracleProperties.Gdelt(
+        var props = new GdeltProperties(
                 wireMock.baseUrl(),
                 minIntervalMs,
                 5000L,

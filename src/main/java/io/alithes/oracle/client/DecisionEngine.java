@@ -1,11 +1,13 @@
 package io.alithes.oracle.client;
 
+import io.alithes.oracle.client.jev.JevResponse;
+import io.alithes.oracle.client.jev.QuestionSpec;
 import java.util.Map;
 
 /**
- * Port for evaluating structured state and typed questions (e.g. via TypeSafe Jev).
+ * Abstraction over decision-engine evaluations (backed by {@link JevClient} in production).
  */
 public interface DecisionEngine {
 
-    JevModels.JevResponse evaluate(Object state, Map<String, JevModels.QuestionSpec> questions);
+    JevResponse evaluate(Object state, Map<String, QuestionSpec> questions);
 }

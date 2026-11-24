@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
-import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.NewsProperties;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Instant;
@@ -39,7 +39,7 @@ class BingNewsRssClientTest {
     @BeforeEach
     void setUp() {
         WIRE_MOCK.resetAll();
-        var newsProps = new OracleProperties.News(
+        var newsProps = new NewsProperties(
                 true,
                 WIRE_MOCK.baseUrl(),
                 3000L,

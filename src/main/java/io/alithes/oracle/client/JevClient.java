@@ -2,6 +2,11 @@ package io.alithes.oracle.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.alithes.oracle.client.jev.JevResponse;
+import io.alithes.oracle.client.jev.QuestionSpec;
+import io.alithes.oracle.client.jev.SystemOneRequest;
+import io.alithes.oracle.client.jev.SystemOneResponse;
+import io.alithes.oracle.config.JevProperties;
 import io.alithes.oracle.config.OracleProperties;
 import io.alithes.oracle.util.CryptoUtil;
 import java.io.IOException;
@@ -26,9 +31,8 @@ import org.springframework.stereotype.Component;
 public class JevClient implements DecisionEngine {
 
     private static final Logger log = LoggerFactory.getLogger(JevClient.class);
-    private static final long MAX_RETRY_AFTER_MS = 30_000L;
 
-    private final OracleProperties.Jev jevProps;
+    private final JevProperties jevProps;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final URI endpointUri;
@@ -38,13 +42,13 @@ public class JevClient implements DecisionEngine {
         this(Objects.requireNonNull(props, "props must not be null").jev(), httpClient, objectMapper);
     }
 
-    public JevClient(OracleProperties.Jev jevProps, HttpClient httpClient, ObjectMapper objectMapper) {
+    public JevClient(JevProperties jevProps, HttpClient httpClient, ObjectMapper objectMapper) {
         this.jevProps = Objects.requireNonNull(jevProps, "jevProps must not be null");
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
 
         String model = jevProps.model() == null ? "" : jevProps.model().trim();
-        if (jevProps.rejectAlias() && ("jev-latest".equals(model) || "jev-preview".equals(model))) {
+        if (jevProps.rejectAlias() && jevProps.forbiddenAliases().contains(model)) {
             throw new IllegalStateException(
                     "Aliased Jev model '" + model + "' is forbidden when oracle.jev.reject-alias=true; "
                             + "pin a versioned model ID such as jev-1.14.0"
@@ -59,13 +63,13 @@ public class JevClient implements DecisionEngine {
      * Evaluates one or more questions against the provided state via {@code POST /v1/systemone}.
      */
     @Override
-    public JevModels.JevResponse evaluate(Object state, Map<String, JevModels.QuestionSpec> questions) {
+    public JevResponse evaluate(Object state, Map<String, QuestionSpec> questions) {
         Objects.requireNonNull(state, "state must not be null");
         if (questions == null || questions.isEmpty()) {
             throw new IllegalArgumentException("questions must not be empty");
         }
 
-        var request = new JevModels.SystemOneRequest(
+        var request = new SystemOneRequest(
                 jevProps.model(),
                 state,
                 new LinkedHashMap<>(questions)
@@ -119,12 +123,10 @@ public class JevClient implements DecisionEngine {
                     throw new JevContextTooLargeException("Jev request exceeded maximum context tokens", body);
                 }
 
-                if (status == 400 || status == 401 || status == 413 || status == 415 || status == 422
-                        || status < 500) {
+                if (status < 500) {
                     throw new JevException("Jev API non-retryable error HTTP " + status, status, body);
                 }
 
-                // 5xx server error
                 if (attempt < maxAttempts) {
                     long delayMs = exponentialBackoffMs(attempt);
                     log.warn("Jev API returned HTTP {}, retrying attempt {}/{} after {}ms",
@@ -151,15 +153,15 @@ public class JevClient implements DecisionEngine {
         throw new JevException("Jev API request exhausted attempts", -1, null);
     }
 
-    private JevModels.JevResponse parseSuccessResponse(String body, String requestSha256) {
+    private JevResponse parseSuccessResponse(String body, String requestSha256) {
         try {
-            JevModels.SystemOneResponse parsed = objectMapper.readValue(body, JevModels.SystemOneResponse.class);
+            SystemOneResponse parsed = objectMapper.readValue(body, SystemOneResponse.class);
             if (parsed == null || parsed.answers() == null) {
                 throw new JevException("Jev API response missing answers field", 200, body);
             }
             int inputTokens = parsed.usage() != null ? parsed.usage().inputTokens() : 0;
             int outputTokens = parsed.usage() != null ? parsed.usage().outputTokens() : 0;
-            return new JevModels.JevResponse(
+            return new JevResponse(
                     parsed.model(),
                     parsed.answers(),
                     inputTokens,
@@ -178,7 +180,8 @@ public class JevClient implements DecisionEngine {
             try {
                 long seconds = Long.parseLong(header.get().trim());
                 if (seconds >= 0) {
-                    return seconds >= 30L ? MAX_RETRY_AFTER_MS : seconds * 1000L;
+                    long maxRetryAfterMs = jevProps.maxRetryAfterMs();
+                    return Math.min(maxRetryAfterMs, seconds * 1000L);
                 }
             } catch (NumberFormatException ignored) {
                 // Fall back to exponential backoff when Retry-After is not an integer.

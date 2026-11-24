@@ -6,6 +6,9 @@ import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Core infrastructure beans for UTC time and HTTP transport.
+ */
 @Configuration
 public class AppConfig {
 
@@ -15,9 +18,9 @@ public class AppConfig {
     }
 
     @Bean
-    public HttpClient httpClient() {
+    public HttpClient httpClient(OracleProperties props) {
         return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
+                .connectTimeout(Duration.ofMillis(props.http().connectTimeoutMs()))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
     }

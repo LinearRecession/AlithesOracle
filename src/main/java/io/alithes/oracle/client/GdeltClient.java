@@ -3,6 +3,8 @@ package io.alithes.oracle.client;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.alithes.oracle.config.FetcherProperties;
+import io.alithes.oracle.config.GdeltProperties;
 import io.alithes.oracle.config.OracleProperties;
 import java.io.IOException;
 import java.net.URI;
@@ -36,13 +38,13 @@ import org.springframework.stereotype.Component;
 public class GdeltClient implements NewsSource {
 
     private static final Logger log = LoggerFactory.getLogger(GdeltClient.class);
-    private static final int MAX_RECORDS = 250;
     private static final DateTimeFormatter GDELT_PARAM_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC);
     private static final DateTimeFormatter GDELT_SEENDATE_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
 
-    private final OracleProperties.Gdelt gdeltProps;
+    private final GdeltProperties gdeltProps;
+    private final String userAgent;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -58,20 +60,34 @@ public class GdeltClient implements NewsSource {
             ObjectMapper objectMapper,
             Clock clock
     ) {
-        this(Objects.requireNonNull(props, "props must not be null").gdelt(), httpClient, objectMapper, clock);
+        this(
+                Objects.requireNonNull(props, "props must not be null").gdelt(),
+                props.fetcher().userAgent(),
+                httpClient,
+                objectMapper,
+                clock
+        );
     }
 
-    public GdeltClient(OracleProperties.Gdelt gdeltProps, HttpClient httpClient, ObjectMapper objectMapper) {
-        this(gdeltProps, httpClient, objectMapper, Clock.systemUTC());
+    public GdeltClient(GdeltProperties gdeltProps, HttpClient httpClient, ObjectMapper objectMapper) {
+        this(gdeltProps, FetcherProperties.defaults().userAgent(), httpClient, objectMapper, Clock.systemUTC());
+    }
+
+    public GdeltClient(GdeltProperties gdeltProps, HttpClient httpClient, ObjectMapper objectMapper, Clock clock) {
+        this(gdeltProps, FetcherProperties.defaults().userAgent(), httpClient, objectMapper, clock);
     }
 
     public GdeltClient(
-            OracleProperties.Gdelt gdeltProps,
+            GdeltProperties gdeltProps,
+            String userAgent,
             HttpClient httpClient,
             ObjectMapper objectMapper,
             Clock clock
     ) {
         this.gdeltProps = Objects.requireNonNull(gdeltProps, "gdeltProps must not be null");
+        this.userAgent = (userAgent == null || userAgent.isBlank())
+                ? FetcherProperties.defaults().userAgent()
+                : userAgent;
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
@@ -81,7 +97,7 @@ public class GdeltClient implements NewsSource {
 
     /**
      * Searches GDELT DOC 2.0 for articles matching {@code query} in {@code [from, to]}.
-     * Automatically splits windows larger than 60 minutes when 250 results are returned.
+     * Automatically splits windows larger than {@code minSplitWindowMinutes} when saturated.
      */
     @Override
     public List<GdeltArticle> search(String query, Instant from, Instant to) {
@@ -99,8 +115,8 @@ public class GdeltClient implements NewsSource {
     private List<GdeltArticle> searchWindow(String query, Instant from, Instant to, int depth) {
         List<GdeltArticle> articles = executeSearchRequest(query, from, to);
 
-        if (articles.size() >= MAX_RECORDS
-                && Duration.between(from, to).toMinutes() > 60
+        if (articles.size() >= gdeltProps.maxRecords()
+                && Duration.between(from, to).toMinutes() > gdeltProps.minSplitWindowMinutes()
                 && depth < gdeltProps.maxWindowSplitDepth()) {
             Instant mid = from.plus(Duration.between(from, to).dividedBy(2));
             log.info("GDELT returned {} results for [{}..{}]; splitting window at {} (depth={})",
@@ -126,7 +142,7 @@ public class GdeltClient implements NewsSource {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(uri)
                     .timeout(Duration.ofMillis(gdeltProps.timeoutMs()))
-                    .header("User-Agent", "AlithesOracle/1.0 (+https://alithes.io)")
+                    .header("User-Agent", userAgent)
                     .header("Accept", "application/json")
                     .GET()
                     .build();
@@ -198,7 +214,7 @@ public class GdeltClient implements NewsSource {
                 + "?query=" + encodedQuery
                 + "&mode=artlist"
                 + "&format=json"
-                + "&maxrecords=" + MAX_RECORDS
+                + "&maxrecords=" + gdeltProps.maxRecords()
                 + "&sort=datedesc"
                 + "&startdatetime=" + GDELT_PARAM_FORMATTER.format(from)
                 + "&enddatetime=" + GDELT_PARAM_FORMATTER.format(to);

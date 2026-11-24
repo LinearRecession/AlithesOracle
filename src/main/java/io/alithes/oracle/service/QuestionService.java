@@ -1,5 +1,6 @@
 package io.alithes.oracle.service;
 
+import io.alithes.oracle.config.AdmissionProperties;
 import io.alithes.oracle.config.OracleProperties;
 import io.alithes.oracle.db.AssessmentRepository;
 import io.alithes.oracle.db.EvidenceRepository;
@@ -35,10 +36,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class QuestionService {
 
-    private static final int DEFAULT_GRACE_HOURS = 48;
-    private static final int MAX_GRACE_HOURS = 720;
-    private static final int DEFAULT_QUERY_LOOKBACK_DAYS = 30;
-    private static final int MAX_QUERY_LOOKBACK_DAYS = 79;
     private static final Set<QuestionStatus> ALLOWED_MANUAL_OUTCOMES = Set.of(
             QuestionStatus.RESOLVED_YES,
             QuestionStatus.RESOLVED_NO,
@@ -123,10 +120,12 @@ public class QuestionService {
             Integer graceHoursOverride,
             List<String> searchQueriesOverride
     ) {
+        AdmissionProperties admission = props.admission();
         Instant now = clock.instant();
-        int days = (lookbackDays == null) ? DEFAULT_QUERY_LOOKBACK_DAYS : lookbackDays;
-        if (days < 1 || days > MAX_QUERY_LOOKBACK_DAYS) {
-            throw new IllegalArgumentException("lookbackDays must be between 1 and " + MAX_QUERY_LOOKBACK_DAYS);
+        int days = (lookbackDays == null) ? admission.defaultQueryLookbackDays() : lookbackDays;
+        if (days < 1 || days > admission.maxQueryLookbackDays()) {
+            throw new IllegalArgumentException(
+                    "lookbackDays must be between 1 and " + admission.maxQueryLookbackDays());
         }
 
         Instant deadline = (deadlineOverride != null) ? deadlineOverride : now;
@@ -170,13 +169,15 @@ public class QuestionService {
             List<String> searchQueries,
             String webhookUrl
     ) {
+        AdmissionProperties admissionProps = props.admission();
         String trimmedText = text == null ? "" : text.trim();
         String trimmedCriteria = (resolutionCriteria == null || resolutionCriteria.isBlank())
                 ? null
                 : resolutionCriteria.trim();
-        int resolvedGraceHours = graceHours == null ? DEFAULT_GRACE_HOURS : graceHours;
-        if (resolvedGraceHours < 0 || resolvedGraceHours > MAX_GRACE_HOURS) {
-            throw new IllegalArgumentException("graceHours must be between 0 and " + MAX_GRACE_HOURS);
+        int resolvedGraceHours = graceHours == null ? admissionProps.defaultGraceHours() : graceHours;
+        if (resolvedGraceHours < 0 || resolvedGraceHours > admissionProps.maxGraceHours()) {
+            throw new IllegalArgumentException(
+                    "graceHours must be between 0 and " + admissionProps.maxGraceHours());
         }
         String normalizedWebhookUrl = normalizeAndValidateWebhookUrl(webhookUrl);
 

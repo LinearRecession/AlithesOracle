@@ -1,37 +1,52 @@
 package io.alithes.oracle.service;
 
+import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.ScoringProperties;
 import io.alithes.oracle.util.UrlNormalizer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Maps news source domains to credibility tier weights loaded from {@code source-tiers.properties}.
+ * Maps news source domains to credibility tier weights loaded from configurable classpath properties.
  */
 @Component
 public class SourceTierRegistry {
 
     public static final double DEFAULT_WEIGHT = 0.3;
-    private static final String RESOURCE_PATH = "/source-tiers.properties";
 
     private final Map<String, Double> domainWeights;
+    private final double defaultWeight;
 
     @Autowired
+    public SourceTierRegistry(OracleProperties props) {
+        this(Objects.requireNonNull(props, "props must not be null").scoring());
+    }
+
     public SourceTierRegistry() {
-        this(loadDefaultProperties());
+        this(ScoringProperties.defaults());
+    }
+
+    private SourceTierRegistry(ScoringProperties scoring) {
+        this(loadProperties(scoring.tiersResourcePath()), scoring.defaultTierWeight());
     }
 
     /**
      * Creates a registry from an explicit map of domain weights (primarily for unit tests).
      */
     public SourceTierRegistry(Map<String, Double> domainWeights) {
+        this(domainWeights, ScoringProperties.defaults().defaultTierWeight());
+    }
+
+    public SourceTierRegistry(Map<String, Double> domainWeights, double defaultWeight) {
+        this.defaultWeight = defaultWeight;
         if (domainWeights == null || domainWeights.isEmpty()) {
             this.domainWeights = Map.of();
         } else {
@@ -55,7 +70,7 @@ public class SourceTierRegistry {
     public double weightFor(String domain) {
         String normalized = stripHost(domain);
         if (normalized.isEmpty()) {
-            return DEFAULT_WEIGHT;
+            return defaultWeight;
         }
         Double exact = domainWeights.get(normalized);
         if (exact != null) {
@@ -68,7 +83,7 @@ public class SourceTierRegistry {
                 return parentWeight;
             }
         }
-        return DEFAULT_WEIGHT;
+        return defaultWeight;
     }
 
     /**
@@ -90,15 +105,16 @@ public class SourceTierRegistry {
         return normalized;
     }
 
-    private static Map<String, Double> loadDefaultProperties() {
+    private static Map<String, Double> loadProperties(String resourcePath) {
+        String path = resourcePath.startsWith("/") ? resourcePath : "/" + resourcePath;
         Properties props = new Properties();
-        try (InputStream in = SourceTierRegistry.class.getResourceAsStream(RESOURCE_PATH)) {
+        try (InputStream in = SourceTierRegistry.class.getResourceAsStream(path)) {
             if (in == null) {
-                throw new IllegalStateException("Classpath resource not found: " + RESOURCE_PATH);
+                throw new IllegalStateException("Classpath resource not found: " + path);
             }
             props.load(new InputStreamReader(in, StandardCharsets.UTF_8));
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to load " + RESOURCE_PATH, e);
+            throw new IllegalStateException("Failed to load " + path, e);
         }
         Map<String, Double> loaded = new HashMap<>();
         for (String name : props.stringPropertyNames()) {

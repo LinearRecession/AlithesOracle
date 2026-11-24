@@ -20,7 +20,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import io.alithes.oracle.config.FetcherProperties;
+import io.alithes.oracle.config.GdeltProperties;
+import io.alithes.oracle.config.JevProperties;
+import io.alithes.oracle.config.NewsProperties;
 import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.PolicyProperties;
+import io.alithes.oracle.config.ScannerProperties;
+import io.alithes.oracle.config.SecurityProperties;
+import io.alithes.oracle.config.WebhookProperties;
 import io.alithes.oracle.db.QuestionRepository;
 import io.alithes.oracle.domain.Question;
 import io.alithes.oracle.domain.QuestionStatus;
@@ -687,14 +695,14 @@ class QuestionControllerTest {
         new ApplicationContextRunner()
                 .withPropertyValues("oracle.scanner.enabled=true")
                 .withBean(OracleProperties.class, () -> new OracleProperties(
-                        OracleProperties.Jev.defaults(),
-                        OracleProperties.Gdelt.defaults(),
-                        OracleProperties.Fetcher.defaults(),
-                        new OracleProperties.Scanner(true, 900000L, 30, 30, 0.30, 8),
-                        OracleProperties.Webhook.defaults(),
-                        OracleProperties.Policy.defaults(),
-                        OracleProperties.Security.defaults(),
-                        OracleProperties.News.defaults()
+                        JevProperties.defaults(),
+                        GdeltProperties.defaults(),
+                        FetcherProperties.defaults(),
+                        new ScannerProperties(true, 900000L, 30, 30, 0.30, 8),
+                        WebhookProperties.defaults(),
+                        PolicyProperties.defaults(),
+                        SecurityProperties.defaults(),
+                        NewsProperties.defaults()
                 ))
                 .withBean(QuestionRepository.class, () -> Mockito.mock(QuestionRepository.class))
                 .withBean(ScanService.class, () -> Mockito.mock(ScanService.class))

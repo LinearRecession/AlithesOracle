@@ -7,7 +7,7 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
-import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.FetcherProperties;
 import io.alithes.oracle.domain.FetchStatus;
 import io.alithes.oracle.util.SafeUrlValidator;
 import io.alithes.oracle.util.SimHash;
@@ -43,7 +43,7 @@ class ArticleFetcherTest {
     }
 
     private ArticleFetcher createFetcher(int maxBytes, boolean allowPrivateNetworkUrls) {
-        var props = new OracleProperties.Fetcher(
+        var props = new FetcherProperties(
                 5000L,
                 maxBytes,
                 "AlithesOracle-Test/1.0"

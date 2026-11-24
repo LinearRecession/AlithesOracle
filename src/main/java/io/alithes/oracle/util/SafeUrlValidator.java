@@ -1,6 +1,7 @@
 package io.alithes.oracle.util;
 
 import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.SecurityProperties;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
@@ -16,22 +17,41 @@ import org.springframework.stereotype.Component;
 @Component
 public class SafeUrlValidator {
 
-    private static final int MAX_URL_LENGTH = 2048;
-
     private final boolean allowPrivateNetworkUrls;
+    private final int maxUrlLength;
     private final Function<String, InetAddress[]> dnsResolver;
 
     @Autowired
     public SafeUrlValidator(OracleProperties props) {
-        this(Objects.requireNonNull(props, "props must not be null").security().allowPrivateNetworkUrls());
+        this(Objects.requireNonNull(props, "props must not be null").security());
+    }
+
+    public SafeUrlValidator(SecurityProperties security) {
+        this(
+                Objects.requireNonNull(security, "security must not be null").allowPrivateNetworkUrls(),
+                security.maxUrlLength(),
+                SafeUrlValidator::resolveAll
+        );
     }
 
     public SafeUrlValidator(boolean allowPrivateNetworkUrls) {
-        this(allowPrivateNetworkUrls, SafeUrlValidator::resolveAll);
+        this(allowPrivateNetworkUrls, SecurityProperties.defaults().maxUrlLength(), SafeUrlValidator::resolveAll);
     }
 
     SafeUrlValidator(boolean allowPrivateNetworkUrls, Function<String, InetAddress[]> dnsResolver) {
+        this(allowPrivateNetworkUrls, SecurityProperties.defaults().maxUrlLength(), dnsResolver);
+    }
+
+    private SafeUrlValidator(
+            boolean allowPrivateNetworkUrls,
+            int maxUrlLength,
+            Function<String, InetAddress[]> dnsResolver
+    ) {
+        if (maxUrlLength <= 0) {
+            throw new IllegalArgumentException("maxUrlLength must be > 0, got " + maxUrlLength);
+        }
         this.allowPrivateNetworkUrls = allowPrivateNetworkUrls;
+        this.maxUrlLength = maxUrlLength;
         this.dnsResolver = Objects.requireNonNull(dnsResolver, "dnsResolver must not be null");
     }
 
@@ -43,8 +63,8 @@ public class SafeUrlValidator {
             throw new IllegalArgumentException("URL must not be null or blank");
         }
         String trimmed = rawUrl.trim();
-        if (trimmed.length() > MAX_URL_LENGTH) {
-            throw new IllegalArgumentException("URL exceeds maximum length of " + MAX_URL_LENGTH);
+        if (trimmed.length() > maxUrlLength) {
+            throw new IllegalArgumentException("URL exceeds maximum length of " + maxUrlLength);
         }
         final URI uri;
         try {
@@ -64,8 +84,8 @@ public class SafeUrlValidator {
             throw new IllegalArgumentException("URI must not be null");
         }
         String raw = uri.toString();
-        if (raw.length() > MAX_URL_LENGTH) {
-            throw new IllegalArgumentException("URL exceeds maximum length of " + MAX_URL_LENGTH);
+        if (raw.length() > maxUrlLength) {
+            throw new IllegalArgumentException("URL exceeds maximum length of " + maxUrlLength);
         }
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         if (!"http".equals(scheme) && !"https".equals(scheme)) {

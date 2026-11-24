@@ -5,19 +5,16 @@ import io.alithes.oracle.domain.Question;
 import io.alithes.oracle.domain.QuestionStatus;
 import io.alithes.oracle.domain.Resolution;
 import io.alithes.oracle.service.QuestionService;
-import io.alithes.oracle.web.ApiDtos.CreateQuestionRequest;
-import io.alithes.oracle.web.ApiDtos.EvidenceDetailResponse;
-import io.alithes.oracle.web.ApiDtos.ManualReviewRequest;
-import io.alithes.oracle.web.ApiDtos.QuestionResponse;
-import io.alithes.oracle.web.ApiDtos.ScanLogResponse;
+import io.alithes.oracle.web.dto.CreateQuestionRequest;
+import io.alithes.oracle.web.dto.EvidenceDetailResponse;
+import io.alithes.oracle.web.dto.ManualReviewRequest;
+import io.alithes.oracle.web.dto.QuestionResponse;
+import io.alithes.oracle.web.dto.ScanLogResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -58,16 +55,7 @@ public class QuestionController {
             return ResponseEntity.created(location).body(QuestionResponse.from(created));
         }
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.UNPROCESSABLE_ENTITY,
-                String.join("; ", result.reasons())
-        );
-        problem.setTitle("Question Rejected");
-        problem.setProperty("questionId", result.question().id());
-        problem.setProperty("reasons", result.reasons());
-        return ResponseEntity.unprocessableEntity()
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problem);
+        return ProblemDetailsFactory.questionRejected(result.question().id(), result.reasons());
     }
 
     @GetMapping

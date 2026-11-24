@@ -1,13 +1,10 @@
 package io.alithes.oracle.web;
 
 import io.alithes.oracle.service.QuestionService;
-import io.alithes.oracle.web.ApiDtos.QueryRequest;
-import io.alithes.oracle.web.ApiDtos.QueryResponse;
+import io.alithes.oracle.web.dto.QueryRequest;
+import io.alithes.oracle.web.dto.QueryResponse;
 import jakarta.validation.Valid;
 import java.util.Objects;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,15 +40,6 @@ public class QueryController {
             return ResponseEntity.ok(QueryResponse.from(result));
         }
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.UNPROCESSABLE_ENTITY,
-                String.join("; ", result.rejectionReasons())
-        );
-        problem.setTitle("Question Rejected");
-        problem.setProperty("questionId", result.question().id());
-        problem.setProperty("reasons", result.rejectionReasons());
-        return ResponseEntity.unprocessableEntity()
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problem);
+        return ProblemDetailsFactory.questionRejected(result.question().id(), result.rejectionReasons());
     }
 }

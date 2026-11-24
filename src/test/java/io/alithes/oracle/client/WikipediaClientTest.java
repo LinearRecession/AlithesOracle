@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
-import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.NewsProperties;
 import io.alithes.oracle.service.EvidenceAssessor;
 import java.lang.reflect.Method;
 import java.net.http.HttpClient;
@@ -46,7 +46,7 @@ class WikipediaClientTest {
     void setUp() {
         WIRE_MOCK.resetAll();
         objectMapper = new ObjectMapper();
-        var newsProps = new OracleProperties.News(
+        var newsProps = new NewsProperties(
                 true, "https://www.bing.com", 8000L, 30,
                 true, "https://news.google.com", 8000L, 30,
                 60000L,
@@ -114,7 +114,7 @@ class WikipediaClientTest {
 
     @Test
     void returnsEmptyWhenDisabledAndThrowsGdeltExceptionOnHttpError() {
-        var disabledProps = new OracleProperties.News(
+        var disabledProps = new NewsProperties(
                 true, "https://www.bing.com", 8000L, 30,
                 true, "https://news.google.com", 8000L, 30,
                 60000L,

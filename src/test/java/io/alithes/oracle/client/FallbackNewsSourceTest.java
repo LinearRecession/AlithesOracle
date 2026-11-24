@@ -3,7 +3,7 @@ package io.alithes.oracle.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.NewsProperties;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -35,7 +35,7 @@ class FallbackNewsSourceTest {
                     googleCalls.incrementAndGet();
                     return List.of();
                 },
-                OracleProperties.News.defaults(),
+                NewsProperties.defaults(),
                 clock
         );
 
@@ -58,7 +58,7 @@ class FallbackNewsSourceTest {
         GdeltArticle recoveredArticle = new GdeltArticle(
                 "https://reuters.com/2", "Primary Recovered", START, "reuters.com", "English", "US");
 
-        var newsProps = new OracleProperties.News(
+        var newsProps = new NewsProperties(
                 true, "https://www.bing.com", 5000L, 20,
                 true, "https://news.google.com", 5000L, 20,
                 60000L,
@@ -123,7 +123,7 @@ class FallbackNewsSourceTest {
                     return List.of();
                 },
                 (q, f, t) -> List.of(googleArticle),
-                OracleProperties.News.defaults(),
+                NewsProperties.defaults(),
                 clock
         );
 
@@ -135,7 +135,7 @@ class FallbackNewsSourceTest {
     @Test
     void propagatesExceptionWhenBothFallbacksAreDisabled() {
         MutableClock clock = new MutableClock(START);
-        var disabledProps = new OracleProperties.News(
+        var disabledProps = new NewsProperties(
                 false, "https://www.bing.com", 5000L, 20,
                 false, "https://news.google.com", 5000L, 20,
                 60000L,

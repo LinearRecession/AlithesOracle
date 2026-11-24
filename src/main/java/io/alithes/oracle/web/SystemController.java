@@ -2,7 +2,7 @@ package io.alithes.oracle.web;
 
 import io.alithes.oracle.config.OracleProperties;
 import io.alithes.oracle.service.QuestionService;
-import io.alithes.oracle.web.ApiDtos.SystemStatusResponse;
+import io.alithes.oracle.web.dto.SystemStatusResponse;
 import java.util.Objects;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;

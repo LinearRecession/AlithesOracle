@@ -13,7 +13,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
-import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.client.jev.ChoiceQuestion;
+import io.alithes.oracle.client.jev.JevResponse;
+import io.alithes.oracle.client.jev.NoulQuestion;
+import io.alithes.oracle.client.jev.QuestionSpec;
+import io.alithes.oracle.config.JevProperties;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -50,7 +54,7 @@ class JevClientTest {
     }
 
     private JevClient createClient(String model, boolean rejectAlias, int maxRetries, long baseDelayMs) {
-        var props = new OracleProperties.Jev(
+        var props = new JevProperties(
                 wireMock.baseUrl(),
                 "test-secret-key",
                 model,
@@ -120,11 +124,11 @@ class JevClientTest {
         stanceCriteria.put("confirms_occurred", "States as fact that it happened");
         stanceCriteria.put("denies_or_not_occurred", "States it did not happen");
 
-        LinkedHashMap<String, JevModels.QuestionSpec> questions = new LinkedHashMap<>();
-        questions.put("relevant", new JevModels.NoulQuestion("Is this article about the election?"));
-        questions.put("stance", new JevModels.ChoiceQuestion("What does the article report?", stanceCriteria));
+        LinkedHashMap<String, QuestionSpec> questions = new LinkedHashMap<>();
+        questions.put("relevant", new NoulQuestion("Is this article about the election?"));
+        questions.put("stance", new ChoiceQuestion("What does the article report?", stanceCriteria));
 
-        JevModels.JevResponse response = client.evaluate(state, questions);
+        JevResponse response = client.evaluate(state, questions);
 
         assertThat(response.model()).isEqualTo("jev-1.14.0");
         assertThat(response.inputTokens()).isEqualTo(312);
@@ -179,9 +183,9 @@ class JevClientTest {
         reverse.put("planned_or_future", "Planned");
         reverse.put("confirms_occurred", "Occurred");
 
-        LinkedHashMap<String, JevModels.QuestionSpec> questions = new LinkedHashMap<>();
-        questions.put("stance_a", new JevModels.ChoiceQuestion("Pick stance", forward));
-        questions.put("stance_b", new JevModels.ChoiceQuestion("Pick stance", reverse));
+        LinkedHashMap<String, QuestionSpec> questions = new LinkedHashMap<>();
+        questions.put("stance_a", new ChoiceQuestion("Pick stance", forward));
+        questions.put("stance_b", new ChoiceQuestion("Pick stance", reverse));
 
         createClient().evaluate(Map.of("question", "test"), questions);
 
@@ -224,9 +228,9 @@ class JevClientTest {
                                 }
                                 """)));
 
-        JevModels.JevResponse response = createClient().evaluate(
+        JevResponse response = createClient().evaluate(
                 "state",
-                Map.of("q_noul", new JevModels.NoulQuestion("Is this relevant?"))
+                Map.of("q_noul", new NoulQuestion("Is this relevant?"))
         );
 
         assertThat(response.noulProbability("q_noul")).isEqualTo(0.62);
@@ -262,9 +266,9 @@ class JevClientTest {
                                 }
                                 """)));
 
-        JevModels.JevResponse response = createClient().evaluate(
+        JevResponse response = createClient().evaluate(
                 "state",
-                Map.of("ok", new JevModels.NoulQuestion("Is it ok?"))
+                Map.of("ok", new NoulQuestion("Is it ok?"))
         );
 
         assertThat(response.noulProbability("ok")).isEqualTo(0.85);
@@ -295,9 +299,9 @@ class JevClientTest {
                                 }
                                 """)));
 
-        JevModels.JevResponse response = createClient().evaluate(
+        JevResponse response = createClient().evaluate(
                 "state",
-                Map.of("ok", new JevModels.NoulQuestion("Is it ok?"))
+                Map.of("ok", new NoulQuestion("Is it ok?"))
         );
 
         assertThat(response.noulProbability("ok")).isEqualTo(0.77);
@@ -313,7 +317,7 @@ class JevClientTest {
                         .withBody("{\"detail\":\"max_tokens_exceeded: 72000 > 64000\"}")));
 
         JevClient client = createClient();
-        Map<String, JevModels.QuestionSpec> questions = Map.of("q", new JevModels.NoulQuestion("Check"));
+        Map<String, QuestionSpec> questions = Map.of("q", new NoulQuestion("Check"));
 
         assertThatThrownBy(() -> client.evaluate("huge state", questions))
                 .isInstanceOf(JevContextTooLargeException.class)
@@ -335,7 +339,7 @@ class JevClientTest {
                         .withBody("{\"detail\":\"Invalid API key\"}")));
 
         JevClient client = createClient();
-        Map<String, JevModels.QuestionSpec> questions = Map.of("q", new JevModels.NoulQuestion("Check"));
+        Map<String, QuestionSpec> questions = Map.of("q", new NoulQuestion("Check"));
 
         assertThatThrownBy(() -> client.evaluate("state", questions))
                 .isInstanceOf(JevException.class)
@@ -362,7 +366,7 @@ class JevClientTest {
                                 """)));
 
         JevClient client = createClient();
-        Map<String, JevModels.QuestionSpec> questions = Map.of("q", new JevModels.NoulQuestion("Check"));
+        Map<String, QuestionSpec> questions = Map.of("q", new NoulQuestion("Check"));
 
         assertThatThrownBy(() -> client.evaluate("state", questions))
                 .isInstanceOf(JevException.class);

@@ -1,7 +1,13 @@
 package io.alithes.oracle.service;
 
 import io.alithes.oracle.client.DecisionEngine;
-import io.alithes.oracle.client.JevModels;
+import io.alithes.oracle.client.jev.ChoiceAnswer;
+import io.alithes.oracle.client.jev.ChoiceQuestion;
+import io.alithes.oracle.client.jev.JevResponse;
+import io.alithes.oracle.client.jev.NoulQuestion;
+import io.alithes.oracle.client.jev.QuestionSpec;
+import io.alithes.oracle.config.AdmissionProperties;
+import io.alithes.oracle.config.OracleProperties;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -12,7 +18,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,36 +27,25 @@ import org.springframework.stereotype.Service;
 @Service
 public class AdmissionService {
 
-    private static final int MIN_TEXT_LENGTH = 10;
-    private static final int MAX_TEXT_LENGTH = 500;
-    private static final Duration MAX_LOOKBACK = Duration.ofDays(80);
-    private static final double MIN_DISCRETE_EVENT_PROB = 0.60;
-    private static final double DEFAULT_MAX_AMBIGUOUS_SCORE = 0.65;
-    private static final double MIN_NEWSWORTHY_SCORE = 0.50;
-
     private static final LinkedHashMap<String, String> QUESTION_TYPE_CRITERIA = createQuestionTypeCriteria();
 
     private final Clock clock;
     private final DecisionEngine decisionEngine;
-    private final double maxAmbiguousScore;
-
-    public AdmissionService(Clock clock, DecisionEngine decisionEngine) {
-        this(clock, decisionEngine, DEFAULT_MAX_AMBIGUOUS_SCORE);
-    }
+    private final AdmissionProperties admissionProps;
 
     @Autowired
-    public AdmissionService(
-            Clock clock,
-            DecisionEngine decisionEngine,
-            @Value("${oracle.admission.max-ambiguous-score:0.65}") double maxAmbiguousScore
-    ) {
+    public AdmissionService(Clock clock, DecisionEngine decisionEngine, OracleProperties props) {
+        this(clock, decisionEngine, Objects.requireNonNull(props, "props must not be null").admission());
+    }
+
+    public AdmissionService(Clock clock, DecisionEngine decisionEngine) {
+        this(clock, decisionEngine, AdmissionProperties.defaults());
+    }
+
+    public AdmissionService(Clock clock, DecisionEngine decisionEngine, AdmissionProperties admissionProps) {
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.decisionEngine = Objects.requireNonNull(decisionEngine, "decisionEngine must not be null");
-        if (!Double.isFinite(maxAmbiguousScore) || maxAmbiguousScore < 0.0 || maxAmbiguousScore > 1.0) {
-            throw new IllegalArgumentException(
-                    "oracle.admission.max-ambiguous-score must be in [0.0, 1.0], got " + maxAmbiguousScore);
-        }
-        this.maxAmbiguousScore = maxAmbiguousScore;
+        this.admissionProps = Objects.requireNonNull(admissionProps, "admissionProps must not be null");
     }
 
     public record AdmissionResult(boolean accepted, List<String> reasons) {
@@ -82,21 +76,21 @@ public class AdmissionService {
         state.put("question", trimmedText);
         state.put("resolution_criteria", resolutionCriteria == null ? "" : resolutionCriteria.trim());
 
-        Map<String, JevModels.QuestionSpec> questions = new LinkedHashMap<>();
-        questions.put("question_type", new JevModels.ChoiceQuestion(
+        Map<String, QuestionSpec> questions = new LinkedHashMap<>();
+        questions.put("question_type", new ChoiceQuestion(
                 "Classify the type of event asked about in `question`.",
                 QUESTION_TYPE_CRITERIA
         ));
-        questions.put("is_ambiguous", new JevModels.NoulQuestion(
+        questions.put("is_ambiguous", new NoulQuestion(
                 "Could two reasonable readers disagree about what counts as YES for this question?"
         ));
-        questions.put("is_newsworthy", new JevModels.NoulQuestion(
+        questions.put("is_newsworthy", new NoulQuestion(
                 "Would mainstream international or national news outlets plausibly report this event if it happened?"
         ));
 
-        JevModels.JevResponse response = decisionEngine.evaluate(state, questions);
+        JevResponse response = decisionEngine.evaluate(state, questions);
 
-        JevModels.ChoiceAnswer questionType = response.choiceAnswer("question_type");
+        ChoiceAnswer questionType = response.choiceAnswer("question_type");
         double pDiscrete = questionType.prob("discrete_event");
         double pAmbiguous = response.noulProbability("is_ambiguous");
         double pNewsworthy = response.noulProbability("is_newsworthy");
@@ -105,25 +99,25 @@ public class AdmissionService {
         if (!"discrete_event".equals(questionType.choice())) {
             semanticReasons.add("question_type is '" + questionType.choice() + "', expected 'discrete_event'");
         }
-        if (pDiscrete < MIN_DISCRETE_EVENT_PROB) {
+        if (pDiscrete < admissionProps.minDiscreteEventProb()) {
             semanticReasons.add(String.format(
                     Locale.ROOT,
                     "discrete_event probability %.2f is below %.2f",
-                    pDiscrete, MIN_DISCRETE_EVENT_PROB
+                    pDiscrete, admissionProps.minDiscreteEventProb()
             ));
         }
-        if (pAmbiguous >= maxAmbiguousScore) {
+        if (pAmbiguous >= admissionProps.maxAmbiguousScore()) {
             semanticReasons.add(String.format(
                     Locale.ROOT,
                     "is_ambiguous score %.2f must be below %.2f",
-                    pAmbiguous, maxAmbiguousScore
+                    pAmbiguous, admissionProps.maxAmbiguousScore()
             ));
         }
-        if (pNewsworthy < MIN_NEWSWORTHY_SCORE) {
+        if (pNewsworthy < admissionProps.minNewsworthyScore()) {
             semanticReasons.add(String.format(
                     Locale.ROOT,
                     "is_newsworthy score %.2f is below %.2f",
-                    pNewsworthy, MIN_NEWSWORTHY_SCORE
+                    pNewsworthy, admissionProps.minNewsworthyScore()
             ));
         }
 
@@ -137,15 +131,17 @@ public class AdmissionService {
         List<String> reasons = new ArrayList<>();
         if (trimmedText.isEmpty()) {
             reasons.add("text must not be blank");
-        } else if (trimmedText.length() < MIN_TEXT_LENGTH || trimmedText.length() > MAX_TEXT_LENGTH) {
-            reasons.add("text length must be between 10 and 500 characters");
+        } else if (trimmedText.length() < admissionProps.minTextLength()
+                || trimmedText.length() > admissionProps.maxTextLength()) {
+            reasons.add("text length must be between "
+                    + admissionProps.minTextLength() + " and " + admissionProps.maxTextLength() + " characters");
         }
 
-        Instant earliestAllowed = clock.instant().minus(MAX_LOOKBACK);
+        Instant earliestAllowed = clock.instant().minus(Duration.ofDays(admissionProps.maxLookbackDays()));
         if (windowStart == null) {
             reasons.add("windowStart must not be null");
         } else if (windowStart.isBefore(earliestAllowed)) {
-            reasons.add("windowStart is older than 80 days (GDELT limit)");
+            reasons.add("windowStart is older than " + admissionProps.maxLookbackDays() + " days (GDELT limit)");
         }
 
         if (deadline == null) {

@@ -1,9 +1,12 @@
 server:
   port: 8080
+  shutdown: graceful
 
 spring:
   application:
     name: alithes-oracle
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   threads:
     virtual:
       enabled: true
@@ -15,7 +18,23 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+logging:
+  pattern:
+    level: "%5p [req:%X{requestId:-none}]"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
 oracle:
+  http:
+    connect-timeout-ms: 10000
   jev:
     base-url: ${JEV_BASE_URL:https://api.typesafe.ai}
     api-key: ${TYPESAFE_API_KEY:}
@@ -24,6 +43,10 @@ oracle:
     timeout-ms: 15000
     max-retries: 3
     retry-base-delay-ms: 1000
+    max-retry-after-ms: 30000
+    forbidden-aliases:
+      - jev-latest
+      - jev-preview
   gdelt:
     base-url: ${GDELT_BASE_URL:https://api.gdeltproject.org}
     min-interval-ms: 5500
@@ -31,10 +54,17 @@ oracle:
     max-retries: 1
     retry-base-delay-ms: 2000
     max-window-split-depth: 3
+    max-records: 250
+    min-split-window-minutes: 60
   fetcher:
     timeout-ms: 6000
     max-bytes: 2097152
     user-agent: "AlithesOracle/1.0 (+https://alithes.io)"
+    min-paragraph-chars: 40
+    min-extracted-chars: 300
+    max-excerpt-chars: 2000
+    max-redirects: 3
+    stream-buffer-bytes: 8192
   scanner:
     enabled: ${ORACLE_SCHEDULER_ENABLED:false}
     fixed-delay-ms: 900000
@@ -51,16 +81,22 @@ oracle:
     google-rss-base-url: ${GOOGLE_RSS_BASE_URL:https://news.google.com}
     google-rss-timeout-ms: 8000
     google-rss-max-results: 30
+    rss-date-padding-hours: 24
     gdelt-cooldown-ms: 60000
     wikipedia-enabled: ${WIKIPEDIA_SOURCE_ENABLED:true}
     wikipedia-base-url: ${WIKIPEDIA_BASE_URL:https://en.wikipedia.org}
     wikipedia-timeout-ms: 6000
     wikipedia-max-pages: 3
     wikipedia-max-citations: 5
+    wikipedia-max-citation-title-chars: 160
+    wikipedia-max-redirects: 2
   webhook:
     secret: ${WEBHOOK_SECRET:dev-secret-change-me}
     timeout-ms: 5000
     max-retries: 3
+    retry-base-delay-ms: 100
+    max-backoff-ms: 5000
+    signature-header: X-Alithes-Signature
   policy:
     version: 1
     min-cluster-confirm-weight: 0.45
@@ -74,5 +110,56 @@ oracle:
     jev-synthesis-enabled: true
   security:
     allow-private-network-urls: false
+    max-url-length: 2048
   admission:
+    min-text-length: 10
+    max-text-length: 500
+    max-lookback-days: 80
+    min-discrete-event-prob: 0.60
     max-ambiguous-score: ${ORACLE_MAX_AMBIGUOUS_SCORE:0.65}
+    min-newsworthy-score: 0.50
+    default-grace-hours: 48
+    max-grace-hours: 720
+    default-query-lookback-days: 30
+    max-query-lookback-days: 79
+  query:
+    max-override-queries: 3
+    max-compiled-queries: 2
+    runner-up-min-probability: 0.25
+  assessor:
+    short-article-max-paragraphs: 8
+    short-article-max-chars: 4000
+    screening-max-input-paragraphs: 25
+    screening-min-probability: 0.45
+    screening-max-selected-paragraphs: 8
+    screening-max-selected-chars: 6000
+    retry-max-paragraphs: 3
+    retry-max-chars: 1500
+    stance-delta-unstable-threshold: 0.25
+  synthesis:
+    max-reports: 8
+    max-excerpt-chars: 400
+    min-relevant-probability: 0.50
+    min-strong-stance-probability: 0.70
+    min-distinct-domains: 3
+    max-supporting-ids: 5
+    min-clear-probability: 0.65
+    min-consensus-probability: 0.75
+    max-opposing-probability: 0.25
+    max-confidence: 0.95
+  scoring:
+    min-stance-fits: 0.30
+    min-stance-confidence: 0.50
+    min-fresh-probability: 0.50
+    trusted-tier-threshold: 0.70
+    title-only-fetch-factor: 0.40
+    unstable-stance-factor: 0.50
+    disputed-confidence: 0.50
+    max-resolution-confidence: 0.99
+    min-no-confidence: 0.50
+    confidence-scale-sum: 3.0
+    max-simhash-distance: 3
+    top-cluster-limit: 5
+    fresh-lookback-hours: 24
+    default-tier-weight: 0.30
+    tiers-resource-path: /source-tiers.properties

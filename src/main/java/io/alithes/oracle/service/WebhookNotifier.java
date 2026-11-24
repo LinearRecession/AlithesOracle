@@ -3,6 +3,7 @@ package io.alithes.oracle.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.alithes.oracle.client.HttpRetrySupport;
 import io.alithes.oracle.config.OracleProperties;
+import io.alithes.oracle.config.WebhookProperties;
 import io.alithes.oracle.domain.Resolution;
 import io.alithes.oracle.util.CryptoUtil;
 import io.alithes.oracle.util.SafeUrlValidator;
@@ -25,10 +26,8 @@ import org.springframework.stereotype.Service;
 public class WebhookNotifier implements ResolutionNotifier {
 
     private static final Logger log = LoggerFactory.getLogger(WebhookNotifier.class);
-    private static final String SIGNATURE_HEADER = "X-Alithes-Signature";
-    private static final long RETRY_BASE_DELAY_MS = 100L;
 
-    private final OracleProperties.Webhook webhookProps;
+    private final WebhookProperties webhookProps;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final SafeUrlValidator urlValidator;
@@ -78,7 +77,7 @@ public class WebhookNotifier implements ResolutionNotifier {
                         .uri(targetUri)
                         .timeout(timeout)
                         .header("Content-Type", "application/json")
-                        .header(SIGNATURE_HEADER, signatureHeaderValue)
+                        .header(webhookProps.signatureHeader(), signatureHeaderValue)
                         .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
                         .build();
 
@@ -104,8 +103,8 @@ public class WebhookNotifier implements ResolutionNotifier {
 
             if (attempt < maxAttempts) {
                 try {
-                    HttpRetrySupport.sleepInterruptibly(
-                            HttpRetrySupport.exponentialBackoffMs(RETRY_BASE_DELAY_MS, attempt, 5000L));
+                    HttpRetrySupport.sleepInterruptibly(HttpRetrySupport.exponentialBackoffMs(
+                            webhookProps.retryBaseDelayMs(), attempt, webhookProps.maxBackoffMs()));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return;

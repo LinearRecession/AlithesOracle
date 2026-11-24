@@ -1,12 +1,6 @@
 package io.alithes.oracle.service;
 
-import io.alithes.oracle.client.ContentFetcher;
-import io.alithes.oracle.client.DecisionEngine;
-import io.alithes.oracle.client.FetchedArticle;
 import io.alithes.oracle.client.GdeltArticle;
-import io.alithes.oracle.client.JevModels;
-import io.alithes.oracle.client.NewsSource;
-import io.alithes.oracle.client.WikipediaClient;
 import io.alithes.oracle.config.OracleProperties;
 import io.alithes.oracle.db.AssessmentRepository;
 import io.alithes.oracle.db.EvidenceRepository;
@@ -18,17 +12,15 @@ import io.alithes.oracle.domain.Evidence;
 import io.alithes.oracle.domain.EvidenceStage;
 import io.alithes.oracle.domain.FetchStatus;
 import io.alithes.oracle.domain.Question;
-import io.alithes.oracle.domain.QuestionStatus;
 import io.alithes.oracle.domain.Resolution;
 import io.alithes.oracle.domain.ScanLog;
-import io.alithes.oracle.util.UrlNormalizer;
+import io.alithes.oracle.service.ArticleDiscoveryService.DiscoveryResult;
+import io.alithes.oracle.service.assessment.ConsensusAdjudicator;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -38,21 +30,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.Semaphore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Orchestrates a full evidence collection, headline prefiltering, fetching, Jev
- * assessment,
- * deterministic policy evaluation, and webhook notification cycle for an active
- * question.
+ * Orchestrates one scan cycle for an active question across discovery, evidence processing,
+ * deterministic resolution evaluation, consensus synthesis adjudication, and webhook delivery.
  */
 @Service
 public class ScanService {
@@ -65,12 +50,10 @@ public class ScanService {
     private final AssessmentRepository assessmentRepository;
     private final ResolutionRepository resolutionRepository;
     private final ScanLogRepository scanLogRepository;
-    private final NewsSource newsSource;
-    private final WikipediaClient wikipediaClient;
-    private final DecisionEngine decisionEngine;
-    private final ContentFetcher contentFetcher;
-    private final EvidenceAssessor evidenceAssessor;
+    private final ArticleDiscoveryService discoveryService;
+    private final EvidenceProcessingPipeline processingPipeline;
     private final ResolutionEngine resolutionEngine;
+    private final ConsensusAdjudicator consensusAdjudicator;
     private final ResolutionNotifier resolutionNotifier;
     private final OracleProperties props;
     private final TransactionTemplate transactionTemplate;
@@ -83,35 +66,31 @@ public class ScanService {
             AssessmentRepository assessmentRepository,
             ResolutionRepository resolutionRepository,
             ScanLogRepository scanLogRepository,
-            NewsSource newsSource,
-            WikipediaClient wikipediaClient,
-            DecisionEngine decisionEngine,
-            ContentFetcher contentFetcher,
-            EvidenceAssessor evidenceAssessor,
+            ArticleDiscoveryService discoveryService,
+            EvidenceProcessingPipeline processingPipeline,
             ResolutionEngine resolutionEngine,
+            ConsensusAdjudicator consensusAdjudicator,
             ResolutionNotifier resolutionNotifier,
             OracleProperties props,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate
+    ) {
         this.clock = Objects.requireNonNull(clock, "clock");
         this.questionRepository = Objects.requireNonNull(questionRepository, "questionRepository");
         this.evidenceRepository = Objects.requireNonNull(evidenceRepository, "evidenceRepository");
         this.assessmentRepository = Objects.requireNonNull(assessmentRepository, "assessmentRepository");
         this.resolutionRepository = Objects.requireNonNull(resolutionRepository, "resolutionRepository");
         this.scanLogRepository = Objects.requireNonNull(scanLogRepository, "scanLogRepository");
-        this.newsSource = Objects.requireNonNull(newsSource, "newsSource");
-        this.wikipediaClient = Objects.requireNonNull(wikipediaClient, "wikipediaClient");
-        this.decisionEngine = Objects.requireNonNull(decisionEngine, "decisionEngine");
-        this.contentFetcher = Objects.requireNonNull(contentFetcher, "contentFetcher");
-        this.evidenceAssessor = Objects.requireNonNull(evidenceAssessor, "evidenceAssessor");
+        this.discoveryService = Objects.requireNonNull(discoveryService, "discoveryService");
+        this.processingPipeline = Objects.requireNonNull(processingPipeline, "processingPipeline");
         this.resolutionEngine = Objects.requireNonNull(resolutionEngine, "resolutionEngine");
+        this.consensusAdjudicator = Objects.requireNonNull(consensusAdjudicator, "consensusAdjudicator");
         this.resolutionNotifier = Objects.requireNonNull(resolutionNotifier, "resolutionNotifier");
         this.props = Objects.requireNonNull(props, "props");
         this.transactionTemplate = Objects.requireNonNull(transactionTemplate, "transactionTemplate");
     }
 
     /**
-     * Executes one scan pass for {@code questionId} if the question exists and is
-     * not in a final status.
+     * Executes one scan pass for {@code questionId} if the question exists and is not in a final status.
      */
     public void scanQuestion(UUID questionId) {
         Objects.requireNonNull(questionId, "questionId must not be null");
@@ -136,88 +115,23 @@ public class ScanService {
         Instant scanFrom = computeScanFrom(q);
         Instant scanTo = earlierOf(startedAt, q.finalAt());
 
-        boolean gdeltOk = true;
-        int articlesFound = 0;
-        List<String> errors = new ArrayList<>();
-        Map<String, GdeltArticle> uniqueArticles = new LinkedHashMap<>();
-
-        if (scanFrom.isBefore(scanTo)) {
-            for (String query : q.searchQueries()) {
-                try {
-                    List<GdeltArticle> articles = newsSource.search(query, scanFrom, scanTo);
-                    articlesFound += articles.size();
-                    for (GdeltArticle article : articles) {
-                        String normalizedUrl = UrlNormalizer.normalize(article.url());
-                        if (!normalizedUrl.isBlank()) {
-                            uniqueArticles.putIfAbsent(normalizedUrl, article);
-                        }
-                    }
-                } catch (Exception e) {
-                    gdeltOk = false;
-                    errors.add(query + ": " + e.getMessage());
-                    log.warn("GDELT search failed for question {} query '{}': {}",
-                            q.id(), query, e.getMessage());
-                }
-            }
-
-            if (props.news().wikipediaEnabled()) {
-                try {
-                    List<GdeltArticle> wikiArticles = wikipediaClient.searchQuestion(q.text());
-                    articlesFound += wikiArticles.size();
-                    for (GdeltArticle article : wikiArticles) {
-                        String normalizedUrl = UrlNormalizer.normalize(article.url());
-                        if (!normalizedUrl.isBlank()) {
-                            uniqueArticles.putIfAbsent(normalizedUrl, article);
-                        }
-                    }
-                    if (!wikiArticles.isEmpty() && props.news().wikipediaMaxCitations() > 0) {
-                        try {
-                            List<GdeltArticle> citations = wikipediaClient.harvestCitations(q.text(), wikiArticles);
-                            articlesFound += citations.size();
-                            for (GdeltArticle citation : citations) {
-                                String normalizedUrl = UrlNormalizer.normalize(citation.url());
-                                if (!normalizedUrl.isBlank()) {
-                                    uniqueArticles.putIfAbsent(normalizedUrl, citation);
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.warn("Wikipedia citation harvest failed for question {}: {}", q.id(), e.getMessage());
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("Wikipedia search failed for question {}: {}", q.id(), e.getMessage());
-                }
-            }
-        }
-
-        int newEvidence = persistNewEvidence(q, uniqueArticles, clock.instant());
-        processPendingEvidence(q);
+        DiscoveryResult discovered = discoveryService.discover(q, scanFrom, scanTo);
+        int newEvidence = persistNewEvidence(q, discovered.uniqueArticles(), clock.instant());
+        processingPipeline.processPending(q);
 
         Instant finishedAt = clock.instant();
-        String errorSummary = errors.isEmpty() ? null : String.join("; ", errors);
+        String errorSummary = discovered.errors().isEmpty() ? null : String.join("; ", discovered.errors());
         ScanLog scanLog = new ScanLog(
                 UUID.randomUUID(),
                 q.id(),
                 startedAt,
                 finishedAt,
-                gdeltOk,
-                articlesFound,
+                discovered.primarySourceOk(),
+                discovered.totalFound(),
                 newEvidence,
                 errorSummary);
-        Question currentQuestion = q;
-        if (gdeltOk) {
-            Instant newLastScanEnd = (q.lastScanEnd() != null && q.lastScanEnd().isAfter(scanTo))
-                    ? q.lastScanEnd()
-                    : scanTo;
-            transactionTemplate.executeWithoutResult(status -> {
-                scanLogRepository.save(scanLog);
-                questionRepository.updateLastScanEnd(q.id(), newLastScanEnd, finishedAt);
-            });
-            currentQuestion = q.withLastScanEnd(newLastScanEnd, finishedAt);
-        } else {
-            scanLogRepository.save(scanLog);
-        }
 
+        Question currentQuestion = persistScanProgress(q, scanLog, scanTo, finishedAt);
         evaluateAndMaybeResolve(currentQuestion, finishedAt);
     }
 
@@ -259,95 +173,19 @@ public class ScanService {
         return insertedCount;
     }
 
-    private void processPendingEvidence(Question q) {
-        int maxArticles = Math.max(0, props.scanner().maxArticlesPerScan());
-        double minHeadlineScore = props.scanner().headlineMinScore();
-        int maxConcurrency = Math.max(1, props.scanner().maxConcurrency());
-        List<Evidence> pending = evidenceRepository.findByQuestionIdAndStageLimit(
-                q.id(), EvidenceStage.NEW, maxArticles);
-        if (pending.isEmpty()) {
-            return;
+    private Question persistScanProgress(Question q, ScanLog scanLog, Instant scanTo, Instant finishedAt) {
+        if (!scanLog.gdeltOk()) {
+            scanLogRepository.save(scanLog);
+            return q;
         }
-
-        Semaphore permits = new Semaphore(maxConcurrency);
-        List<Future<?>> futures = new ArrayList<>(pending.size());
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            for (Evidence ev : pending) {
-                futures.add(executor.submit(() -> {
-                    permits.acquire();
-                    try {
-                        processSingleEvidence(q, ev, minHeadlineScore);
-                    } finally {
-                        permits.release();
-                    }
-                    return null;
-                }));
-            }
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("Interrupted while waiting for evidence processing on question {}", q.id(), e);
-                    break;
-                } catch (ExecutionException e) {
-                    log.warn("Unexpected task failure during evidence processing for question {}: {}",
-                            q.id(), e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
-                }
-            }
-        }
-    }
-
-    private void processSingleEvidence(Question q, Evidence ev, double minHeadlineScore) {
-        try {
-            double headlineScore = prefilterHeadline(q, ev);
-            if (headlineScore < minHeadlineScore) {
-                evidenceRepository.updateHeadlineResult(ev.id(), headlineScore, EvidenceStage.SKIPPED);
-                return;
-            }
-            evidenceRepository.updateHeadlineResult(ev.id(), headlineScore, EvidenceStage.NEW);
-            Evidence scoredEvidence = ev.withHeadlineResult(headlineScore, EvidenceStage.NEW);
-
-            FetchedArticle fetched = contentFetcher.fetch(scoredEvidence.url(), scoredEvidence.title());
-            evidenceRepository.updateFetchedContent(
-                    scoredEvidence.id(),
-                    fetched.status(),
-                    fetched.publishedAt(),
-                    fetched.contentSha256(),
-                    fetched.excerpt(),
-                    fetched.simhash());
-            Evidence fetchedEvidence = scoredEvidence.withFetchedContent(
-                    fetched.status(),
-                    fetched.publishedAt(),
-                    fetched.contentSha256(),
-                    fetched.excerpt(),
-                    fetched.simhash());
-
-            Assessment assessment = evidenceAssessor.assess(q, fetchedEvidence, fetched);
-            transactionTemplate.executeWithoutResult(status -> {
-                assessmentRepository.save(assessment);
-                evidenceRepository.updateStage(fetchedEvidence.id(), EvidenceStage.ASSESSED);
-            });
-        } catch (
-
-        Exception e) {
-            log.warn("Processing failed for evidence {} on question {}: {}",
-                    ev.id(), q.id(), e.getMessage(), e);
-            evidenceRepository.updateStage(ev.id(), EvidenceStage.FAILED);
-        }
-    }
-
-    private double prefilterHeadline(Question q, Evidence ev) {
-        Map<String, Object> state = new LinkedHashMap<>();
-        state.put("question", q.text());
-        state.put("headline", ev.title() == null ? "" : ev.title());
-        state.put("domain", ev.domain() == null ? "" : ev.domain());
-
-        Map<String, JevModels.QuestionSpec> questions = Map.of(
-                "relevant",
-                new JevModels.NoulQuestion("Could an article with this headline be about the event in question?"));
-        JevModels.JevResponse response = decisionEngine.evaluate(state, questions);
-        return response.noulProbability("relevant");
+        Instant newLastScanEnd = (q.lastScanEnd() != null && q.lastScanEnd().isAfter(scanTo))
+                ? q.lastScanEnd()
+                : scanTo;
+        transactionTemplate.executeWithoutResult(status -> {
+            scanLogRepository.save(scanLog);
+            questionRepository.updateLastScanEnd(q.id(), newLastScanEnd, finishedAt);
+        });
+        return q.withLastScanEnd(newLastScanEnd, finishedAt);
     }
 
     private void evaluateAndMaybeResolve(Question q, Instant now) {
@@ -370,7 +208,7 @@ public class ScanService {
         List<ScanLog> scanLogs = scanLogRepository.findByQuestionId(q.id());
         Optional<Resolution> resolutionOpt = resolutionEngine.evaluate(q, items, scanLogs, now);
         if (resolutionOpt.isPresent()) {
-            Resolution resolution = maybeAdjudicateWithSynthesis(q, items, resolutionOpt.get(), now);
+            Resolution resolution = consensusAdjudicator.adjudicate(q, items, resolutionOpt.get(), now);
             transactionTemplate.executeWithoutResult(status -> {
                 resolutionRepository.save(resolution);
                 questionRepository.updateStatus(
@@ -383,106 +221,6 @@ public class ScanService {
                 resolutionNotifier.notify(q.webhookUrl(), resolution);
             }
         }
-    }
-
-    private Resolution maybeAdjudicateWithSynthesis(
-            Question q,
-            List<ResolutionEngine.EvidenceWithAssessment> items,
-            Resolution resolution,
-            Instant now) {
-        if (!props.policy().jevSynthesisEnabled()
-                || resolution.outcome() != QuestionStatus.DISPUTED) {
-            return resolution;
-        }
-        boolean trueContradiction = resolution.confirmSum() >= props.policy().disputeThreshold()
-                && resolution.denySum() >= props.policy().disputeThreshold();
-        if (trueContradiction
-                || resolution.denySum() >= props.policy().maxDenyRatio() * Math.max(resolution.confirmSum(), 0.001)) {
-            return resolution;
-        }
-
-        Set<String> relevantDomains = new HashSet<>();
-        Set<String> confirmingDomains = new HashSet<>();
-        List<UUID> confirmingIds = new ArrayList<>();
-        items.stream()
-                .filter(i -> !i.assessment().injectionFlag()
-                        && i.assessment().pRelevant() >= 0.50
-                        && (i.assessment().pConfirms() >= 0.70 || i.assessment().pDenies() >= 0.70))
-                .sorted(Comparator.comparingDouble(
-                        (ResolutionEngine.EvidenceWithAssessment i) -> i.assessment().pRelevant()
-                                * Math.max(i.assessment().pConfirms(), i.assessment().pDenies()))
-                        .reversed())
-                .forEach(i -> {
-                    String dom = UrlNormalizer.stripHostPrefixes(i.evidence().domain());
-                    if (!dom.isBlank()) {
-                        relevantDomains.add(dom);
-                        if (i.assessment().pConfirms() >= 0.70
-                                && confirmingDomains.add(dom)
-                                && confirmingIds.size() < 5) {
-                            confirmingIds.add(i.evidence().id());
-                        }
-                    }
-                });
-
-        if (relevantDomains.size() < 3) {
-            return resolution;
-        }
-
-        try {
-            EvidenceAssessor.ConsensusSynthesis s = evidenceAssessor.synthesize(q, items);
-            log.info(
-                    "Jev consensus synthesis for question {}: pYes={}, pNo={}, pClear={} (domains={}, confirmSum={}, denySum={})",
-                    q.id(), s.pConsensusYes(), s.pConsensusNo(), s.pSufficient(),
-                    relevantDomains.size(), resolution.confirmSum(), resolution.denySum());
-
-            if (confirmingDomains.size() >= 3
-                    && s.pSufficient() >= 0.65
-                    && s.pConsensusYes() >= 0.75
-                    && s.pConsensusNo() <= 0.25) {
-                double confidence = Math.min(0.95, s.pConsensusYes() * s.pSufficient());
-                List<UUID> supportingIds = resolution.supportingEvidenceIds().isEmpty()
-                        ? List.copyOf(confirmingIds)
-                        : resolution.supportingEvidenceIds();
-                String details = String.format(Locale.ROOT,
-                        "Jev consensus synthesis confirmed YES (%d distinct domains, pYes=%.2f, pNo=%.2f, pClear=%.2f, confirmSum=%.3f)",
-                        confirmingDomains.size(), s.pConsensusYes(), s.pConsensusNo(), s.pSufficient(),
-                        resolution.confirmSum());
-                return new Resolution(
-                        resolution.questionId(),
-                        QuestionStatus.RESOLVED_YES,
-                        confidence,
-                        resolution.confirmSum(),
-                        resolution.denySum(),
-                        confirmingDomains.size(),
-                        supportingIds,
-                        resolution.policyVersion(),
-                        s.model().isBlank() ? resolution.model() : s.model(),
-                        details,
-                        now);
-            }
-            if (s.pSufficient() >= 0.65 && s.pConsensusNo() >= 0.75 && s.pConsensusYes() <= 0.25) {
-                double confidence = Math.min(0.95, s.pConsensusNo() * s.pSufficient());
-                String details = String.format(Locale.ROOT,
-                        "Jev consensus synthesis confirmed NO (pYes=%.2f, pNo=%.2f, pClear=%.2f, confirmSum=%.3f)",
-                        s.pConsensusYes(), s.pConsensusNo(), s.pSufficient(), resolution.confirmSum());
-                return new Resolution(
-                        resolution.questionId(),
-                        QuestionStatus.RESOLVED_NO,
-                        confidence,
-                        resolution.confirmSum(),
-                        resolution.denySum(),
-                        resolution.independentClusters(),
-                        List.of(),
-                        resolution.policyVersion(),
-                        s.model().isBlank() ? resolution.model() : s.model(),
-                        details,
-                        now);
-            }
-        } catch (Exception e) {
-            log.warn("Jev consensus synthesis failed for question {}; keeping DISPUTED resolution: {}",
-                    q.id(), e.getMessage());
-        }
-        return resolution;
     }
 
     private static Instant earlierOf(Instant a, Instant b) {

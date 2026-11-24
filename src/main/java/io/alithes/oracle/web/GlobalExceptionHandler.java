@@ -6,7 +6,6 @@ import io.alithes.oracle.service.ResolutionNotFoundException;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
@@ -27,39 +26,27 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(QuestionNotFoundException.class)
     public ProblemDetail handleQuestionNotFound(QuestionNotFoundException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-        problem.setTitle("Question Not Found");
-        problem.setProperty("questionId", ex.questionId());
-        return problem;
+        return ProblemDetailsFactory.notFound("Question Not Found", ex.getMessage(), ex.questionId());
     }
 
     @ExceptionHandler(ResolutionNotFoundException.class)
     public ProblemDetail handleResolutionNotFound(ResolutionNotFoundException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-        problem.setTitle("Resolution Not Found");
-        problem.setProperty("questionId", ex.questionId());
-        return problem;
+        return ProblemDetailsFactory.notFound("Resolution Not Found", ex.getMessage(), ex.questionId());
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
     public ProblemDetail handleNoResourceFound(NoResourceFoundException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-        problem.setTitle("Not Found");
-        return problem;
+        return ProblemDetailsFactory.notFound("Not Found", ex.getMessage(), null);
     }
 
     @ExceptionHandler(ConflictException.class)
     public ProblemDetail handleConflict(ConflictException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
-        problem.setTitle("Conflict");
-        return problem;
+        return ProblemDetailsFactory.conflict(ex.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleBadRequest(IllegalArgumentException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
-        problem.setTitle("Bad Request");
-        return problem;
+        return ProblemDetailsFactory.badRequest(ex.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -67,47 +54,28 @@ public class GlobalExceptionHandler {
         List<String> errors = ex.getBindingResult().getFieldErrors().stream()
                 .map(GlobalExceptionHandler::formatFieldError)
                 .toList();
-        String detail = errors.isEmpty() ? "Request validation failed" : String.join("; ", errors);
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
-        problem.setTitle("Validation Failed");
-        problem.setProperty("errors", errors);
-        return problem;
+        return ProblemDetailsFactory.validationFailed(errors);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ProblemDetail handleUnreadableMessage(HttpMessageNotReadableException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST,
-                "Malformed or invalid request payload"
-        );
-        problem.setTitle("Bad Request");
-        return problem;
+        return ProblemDetailsFactory.badRequest("Malformed or invalid request payload");
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ProblemDetail handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
-        String detail = "Invalid value for parameter '" + ex.getName() + "'";
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
-        problem.setTitle("Bad Request");
-        return problem;
+        return ProblemDetailsFactory.badRequest("Invalid value for parameter '" + ex.getName() + "'");
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ProblemDetail handleMissingParam(MissingServletRequestParameterException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
-        problem.setTitle("Bad Request");
-        return problem;
+        return ProblemDetailsFactory.badRequest(ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception ex) {
         log.error("Unhandled exception in REST API", ex);
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "An unexpected internal error occurred"
-        );
-        problem.setTitle("Internal Server Error");
-        return problem;
+        return ProblemDetailsFactory.internalError();
     }
 
     private static String formatFieldError(FieldError error) {
